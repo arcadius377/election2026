@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2026 Midterms — Election Night</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #f7f8fa; color: #1a1f2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; }
+
+  /* ── Topbar ── */
+  .topbar { background: #fff; border-bottom: 1px solid #e2e6ed; padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
+  .topbar-title { font-size: 15px; font-weight: 600; color: #1a1f2e; letter-spacing: -0.01em; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #d93025; display: inline-block; margin-right: 5px; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  .live-lbl { font-size: 11px; color: #d93025; font-weight: 600; }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  .update-ts { font-size: 11px; color: #8a94a6; }
+  .refresh-cd { font-size: 11px; color: #8a94a6; background: #f0f2f5; border-radius: 4px; padding: 2px 8px; }
+
+  /* ── Scoreboard ── */
+  .scoreboard { background: #fff; border-bottom: 1px solid #e2e6ed; padding: 12px 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .cham { background: #f7f8fa; border: 1px solid #e2e6ed; border-radius: 10px; padding: 12px 16px; }
+  .cham-label { font-size: 10px; color: #8a94a6; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; margin-bottom: 4px; }
+  .flip-banner { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 3px; display: inline-block; margin-bottom: 6px; }
+  .flip-d { background: #dbeafe; color: #1e40af; }
+  .flip-r { background: #fee2e2; color: #991b1b; }
+  .cham-scores { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  .score-d { font-size: 30px; font-weight: 700; color: #1d4ed8; line-height: 1; }
+  .score-r { font-size: 30px; font-weight: 700; color: #b91c1c; line-height: 1; }
+  .score-sep { font-size: 20px; color: #d1d5db; }
+  .score-unc { font-size: 11px; color: #8a94a6; margin-left: auto; align-self: center; }
+  .tbar { height: 6px; background: #e9ecf0; border-radius: 3px; overflow: hidden; display: flex; position: relative; }
+  .tbar-d { height: 100%; background: #3b82f6; transition: width .6s; }
+  .tbar-r { height: 100%; background: #ef4444; transition: width .6s; }
+  .tbar-line { position: absolute; left: 50%; top: 0; width: 1px; height: 100%; background: #c8cdd6; }
+  .tbar-note { font-size: 10px; color: #adb5c4; margin-top: 4px; }
+
+  /* ── Needles ── */
+  .needles-section { background: #fff; border-bottom: 1px solid #e2e6ed; padding: 14px 24px; }
+  .sec-label { font-size: 10px; color: #8a94a6; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; margin-bottom: 10px; }
+  .needles-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .needle-card { background: #f7f8fa; border: 1px solid #e2e6ed; border-radius: 10px; padding: 12px 16px; text-align: center; }
+  .needle-title { font-size: 11px; color: #8a94a6; margin-bottom: 8px; font-weight: 600; }
+  .needle-wrap { position: relative; width: 130px; height: 70px; margin: 0 auto 8px; }
+  .needle-arc { width: 130px; height: 66px; }
+  .needle-ptr { position: absolute; bottom: 2px; left: 50%; transform-origin: bottom center; width: 2px; height: 56px; margin-left: -1px; background: #1a1f2e; border-radius: 1px; transition: transform .8s cubic-bezier(.34,1.56,.64,1); }
+  .needle-prob { font-size: 20px; font-weight: 700; }
+  .needle-lbl { font-size: 11px; color: #8a94a6; margin-top: 2px; }
+  .prob-d { color: #1d4ed8; } .prob-r { color: #b91c1c; } .prob-toss { color: #d97706; }
+
+  /* ── Map ── */
+  .map-section { padding: 14px 24px; background: #f7f8fa; position: relative; }
+  .map-controls { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+  .map-tabs, .filter-tabs, .sort-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .mtab, .ftab, .stab { padding: 4px 12px; border-radius: 5px; font-size: 11px; cursor: pointer; border: 1px solid #e2e6ed; background: #fff; color: #8a94a6; transition: all .15s; font-family: inherit; }
+  .mtab.active { background: #1a1f2e; color: #fff; border-color: #1a1f2e; }
+  .ftab.active { background: #1a1f2e; color: #fff; border-color: #1a1f2e; }
+  .stab.active { background: #f0f2f5; color: #1a1f2e; border-color: #c8cdd6; }
+  .legend { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .leg { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #8a94a6; }
+  .leg-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .map-wrap { background: #fff; border: 1px solid #e2e6ed; border-radius: 10px; overflow: hidden; }
+  #us-map { width: 100%; display: block; }
+
+  /* ── Tooltip ── */
+  .tooltip { position: absolute; background: #fff; border: 1px solid #e2e6ed; border-radius: 10px; padding: 12px 14px; font-size: 12px; color: #1a1f2e; pointer-events: none; z-index: 100; min-width: 200px; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+  .tt-state { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  .tt-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .tt-dot-d { width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; flex-shrink: 0; }
+  .tt-dot-r { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; flex-shrink: 0; }
+  .tt-name { flex: 1; color: #4b5563; }
+  .tt-pct-d { font-weight: 600; color: #1d4ed8; }
+  .tt-pct-r { font-weight: 600; color: #b91c1c; }
+  .tt-rep { font-size: 10px; color: #8a94a6; margin-top: 6px; border-top: 1px solid #f0f2f5; padding-top: 5px; }
+  .tt-called { font-size: 10px; font-weight: 600; margin-top: 3px; }
+  .tt-cd { color: #1d4ed8; } .tt-cr { color: #b91c1c; }
+
+  /* ── Watching ── */
+  .watching-section { padding: 12px 24px; background: #fff; border-bottom: 1px solid #e2e6ed; }
+  .watching-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+  .watch-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 12px; border-left: 3px solid #d97706; }
+  .watch-title { font-size: 12px; font-weight: 600; color: #92400e; margin-bottom: 2px; }
+  .watch-sub { font-size: 10px; color: #b45309; margin-bottom: 6px; }
+  .watch-bar { height: 4px; background: #fef3c7; border-radius: 2px; overflow: hidden; display: flex; margin-bottom: 4px; }
+  .watch-bd { height: 100%; background: #3b82f6; }
+  .watch-br { height: 100%; background: #ef4444; }
+  .watch-pcts { display: flex; justify-content: space-between; font-size: 10px; }
+  .wpd { color: #1d4ed8; font-weight: 600; } .wpr { color: #b91c1c; font-weight: 600; }
+
+  /* ── Ticker ── */
+  .ticker-bar { background: #1a1f2e; padding: 6px 24px; display: flex; align-items: center; gap: 14px; overflow: hidden; }
+  .ticker-label { font-size: 10px; font-weight: 700; color: #ef4444; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+  .ticker-track { flex: 1; overflow: hidden; }
+  .ticker-inner { display: flex; gap: 32px; animation: tick 60s linear infinite; white-space: nowrap; }
+  @keyframes tick { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+  .tick-item { font-size: 11px; color: #9ca3af; white-space: nowrap; }
+  .tick-d { color: #60a5fa; font-weight: 600; } .tick-r { color: #f87171; font-weight: 600; }
+
+  /* ── Races ── */
+  .races-section { padding: 14px 24px 32px; }
+  .races-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px; }
+  .races-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .sort-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .sort-lbl { font-size: 11px; color: #8a94a6; }
+  .races-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+
+  .rcard { background: #fff; border: 0.5px solid #e2e6ed; border-radius: 8px; overflow: hidden; cursor: pointer; transition: border-color .15s; }
+  .rcard:hover { border-color: #c8cdd6; }
+  .rcard.called-d { border-left: 3px solid #3b82f6; }
+  .rcard.called-r { border-left: 3px solid #ef4444; }
+  .rcard.competitive { border-left: 3px solid #d97706; }
+  .rcard.reporting { border-left: 3px solid #d1d5db; }
+  .rcompact { padding: 10px 12px; display: flex; align-items: center; gap: 8px; }
+  .rstate { font-size: 12px; font-weight: 600; color: #1a1f2e; min-width: 46px; }
+  .rtype-badge { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: #f0f2f5; color: #8a94a6; margin-top: 2px; display: inline-block; }
+  .rbar-wrap { flex: 1; }
+  .rbar { height: 5px; border-radius: 3px; background: #f0f2f5; overflow: hidden; display: flex; margin-bottom: 3px; }
+  .bar-d { height: 100%; background: #3b82f6; transition: width .6s; }
+  .bar-r { height: 100%; background: #ef4444; transition: width .6s; }
+  .rpcts { display: flex; justify-content: space-between; }
+  .pd { font-size: 10px; color: #1d4ed8; font-weight: 600; }
+  .pr { font-size: 10px; color: #b91c1c; font-weight: 600; }
+  .rstatus { font-size: 10px; font-weight: 600; min-width: 52px; text-align: right; white-space: nowrap; }
+  .st-d { color: #1d4ed8; } .st-r { color: #b91c1c; } .st-c { color: #d97706; } .st-n { color: #adb5c4; }
+  .shift-d { font-size: 10px; color: #1d4ed8; } .shift-r { font-size: 10px; color: #b91c1c; }
+
+  .rexpanded { display: none; border-top: 1px solid #f0f2f5; padding: 10px 12px; background: #f7f8fa; }
+  .rcard.open .rexpanded { display: block; }
+  .crow { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  .cp-d { width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; flex-shrink: 0; }
+  .cp-r { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; flex-shrink: 0; }
+  .cname { font-size: 12px; color: #374151; flex: 1; }
+  .cvotes { font-size: 10px; color: #adb5c4; }
+  .cpct-d { font-size: 12px; font-weight: 600; color: #1d4ed8; min-width: 36px; text-align: right; }
+  .cpct-r { font-size: 12px; font-weight: 600; color: #b91c1c; min-width: 36px; text-align: right; }
+  .wbadge { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; }
+  .wb-d { background: #dbeafe; color: #1e40af; } .wb-r { background: #fee2e2; color: #991b1b; }
+  .rinfo { display: flex; justify-content: space-between; font-size: 10px; color: #adb5c4; margin-top: 7px; border-top: 1px solid #e9ecf0; padding-top: 6px; }
+  .called-time { font-weight: 600; color: #8a94a6; }
+
+  /* ── Ballot expanded summary ── */
+  .bsummary-box { font-size: 12px; color: #374151; line-height: 1.65; margin-bottom: 10px; padding: 10px 12px; background: #fff; border-radius: 6px; border: 0.5px solid #e2e6ed; }
+  .bsummary-lbl { font-size: 10px; font-weight: 600; color: #8a94a6; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 5px; }
+  .btags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+  .btag { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+  .btag-pass { background: #dcfce7; color: #166534; }
+  .btag-fail { background: #fee2e2; color: #991b1b; }
+  .btag-close { background: #fef9c3; color: #854d0e; }
+  .btag-topic { background: #f0f2f5; color: #6b7280; }
+</style>
+</head>
+<body>
+
+<!-- ── Topbar ── -->
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:14px">
+    <span class="topbar-title">2026 Midterms</span>
+    <span class="live-lbl"><span class="live-dot"></span>Live</span>
+  </div>
+  <div class="topbar-right">
+    <span class="update-ts" id="uts">–</span>
+    <span class="refresh-cd" id="cd">Refresh in 60s</span>
+  </div>
+</div>
+
+<!-- ── Scoreboard ── -->
+<div class="scoreboard">
+  <div class="cham">
+    <div class="cham-label">U.S. Senate</div>
+    <div id="sen-flip"></div>
+    <div class="cham-scores">
+      <span class="score-d" id="sd">47</span>
+      <span class="score-sep">—</span>
+      <span class="score-r" id="sr">49</span>
+      <span class="score-unc" id="sunc">4 uncalled</span>
+    </div>
+    <div class="tbar"><div class="tbar-d" style="width:47%"></div><div class="tbar-r" style="width:49%"></div><div class="tbar-line"></div></div>
+    <div class="tbar-note">51 seats needed for majority</div>
+  </div>
+  <div class="cham">
+    <div class="cham-label">U.S. House</div>
+    <div id="house-flip"></div>
+    <div class="cham-scores">
+      <span class="score-d" id="hd">198</span>
+      <span class="score-sep">—</span>
+      <span class="score-r" id="hr">214</span>
+      <span class="score-unc" id="hunc">23 uncalled</span>
+    </div>
+    <div class="tbar"><div class="tbar-d" style="width:46%"></div><div class="tbar-r" style="width:50%"></div><div class="tbar-line"></div></div>
+    <div class="tbar-note">218 seats needed for majority</div>
+  </div>
+  <div class="cham">
+    <div class="cham-label">Governors</div>
+    <div id="gov-flip"></div>
+    <div class="cham-scores">
+      <span class="score-d" id="gd">12</span>
+      <span class="score-sep">—</span>
+      <span class="score-r" id="gr">14</span>
+      <span class="score-unc" id="gunc">10 uncalled</span>
+    </div>
+    <div class="tbar"><div class="tbar-d" style="width:33%"></div><div class="tbar-r" style="width:39%"></div><div class="tbar-line"></div></div>
+    <div class="tbar-note">36 total races this cycle</div>
+  </div>
+</div>
+
+<!-- ── Needles ── -->
+<div class="needles-section">
+  <div class="sec-label">Projected outcome</div>
+  <div class="needles-row">
+    <div class="needle-card">
+      <div class="needle-title">Senate control</div>
+      <div class="needle-wrap">
+        <svg class="needle-arc" viewBox="0 0 130 68">
+          <path d="M10,64 A55,55 0 0,1 120,64" fill="none" stroke="#e9ecf0" stroke-width="7" stroke-linecap="round"/>
+          <path d="M10,64 A55,55 0 0,1 120,64" fill="none" stroke="url(#sg)" stroke-width="7" stroke-linecap="round"/>
+          <defs><linearGradient id="sg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#ef4444"/></linearGradient></defs>
+        </svg>
+        <div class="needle-ptr" style="transform:rotate(-18deg)"></div>
+      </div>
+      <div class="needle-prob prob-r">Rep +4</div>
+      <div class="needle-lbl">Likely Republican</div>
+    </div>
+    <div class="needle-card">
+      <div class="needle-title">House control</div>
+      <div class="needle-wrap">
+        <svg class="needle-arc" viewBox="0 0 130 68">
+          <path d="M10,64 A55,55 0 0,1 120,64" fill="none" stroke="#e9ecf0" stroke-width="7" stroke-linecap="round"/>
+          <path d="M10,64 A55,55 0 0,1 120,64" fill="none" stroke="url(#hg)" stroke-width="7" stroke-linecap="round"/>
+          <defs><linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#ef4444"/></linearGradient></defs>
+        </svg>
+        <div class="needle-ptr" style="transform:rotate(8deg)"></div>
+      </div>
+      <div class="needle-prob prob-toss">Toss-up</div>
+      <div class="needle-lbl">Too close to call</div>
+    </div>
+    <div class="needle-card">
+      <div class="needle-title">Governor net</div>
+      <div class="needle-wrap">
+        <svg class="needle-arc" viewBox="0 0 130 68">
+          <path d="M10,64 A55,55 0 0,1 120,64" fill="none" stroke="#e9ecf0" stroke-width="7" stroke-linecap="round"/>
+          <path d="M10,64 A55,55 0 0,1 120,64" fill="none" stroke="url(#gg)" stroke-width="7" stroke-linecap="round"/>
+          <defs><linearGradient id="gg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#ef4444"/></linearGradient></defs>
+        </svg>
+        <div class="needle-ptr" style="transform:rotate(-5deg)"></div>
+      </div>
+      <div class="needle-prob prob-r">Rep +2</div>
+      <div class="needle-lbl">Slight Republican</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Map ── -->
+<div class="map-section">
+  <div class="map-controls">
+    <div class="map-tabs">
+      <button class="mtab active" onclick="setTab('senate',this)">Senate</button>
+      <button class="mtab" onclick="setTab('governor',this)">Governor</button>
+      <button class="mtab" onclick="setTab('house',this)">House</button>
+    </div>
+    <div class="legend">
+      <div class="leg"><div class="leg-dot" style="background:#bfdbfe"></div>Dem called</div>
+      <div class="leg"><div class="leg-dot" style="background:#fecaca"></div>Rep called</div>
+      <div class="leg"><div class="leg-dot" style="background:#fde68a"></div>Competitive</div>
+      <div class="leg"><div class="leg-dot" style="background:#e9ecf0"></div>No race / early</div>
+    </div>
+  </div>
+  <div class="map-wrap"><svg id="us-map" viewBox="0 0 960 500" preserveAspectRatio="xMidYMid meet"></svg></div>
+  <div class="tooltip" id="tt"></div>
+</div>
+
+<!-- ── Still Watching ── -->
+<div class="watching-section">
+  <div class="sec-label">Still watching</div>
+  <div class="watching-grid" id="watching"></div>
+</div>
+
+<!-- ── Ticker ── -->
+<div class="ticker-bar">
+  <span class="ticker-label">AP Calls</span>
+  <div class="ticker-track"><div class="ticker-inner" id="ticker"></div></div>
+</div>
+
+<!-- ── Races ── -->
+<div class="races-section">
+  <div class="races-header">
+    <div class="races-left">
+      <span class="sec-label" style="margin-bottom:0">All races</span>
+      <div class="filter-tabs">
+        <button class="ftab active" onclick="doFilter('all',this)">All</button>
+        <button class="ftab" onclick="doFilter('senate',this)">Senate</button>
+        <button class="ftab" onclick="doFilter('house',this)">House</button>
+        <button class="ftab" onclick="doFilter('governor',this)">Gov</button>
+        <button class="ftab" onclick="doFilter('ballot',this)">Ballot</button>
+      </div>
+    </div>
+    <div class="sort-row">
+      <span class="sort-lbl">Sort:</span>
+      <button class="stab active" onclick="doSort('closest',this)">Closest</button>
+      <button class="stab" onclick="doSort('alpha',this)">A–Z</button>
+      <button class="stab" onclick="doSort('reporting',this)">% Reporting</button>
+      <button class="stab" onclick="doSort('recent',this)">Just called</button>
+    </div>
+  </div>
+  <div class="races-grid" id="rgrid"></div>
+</div>
+
+<script>
+// ─────────────────────────────────────────
+// DATA — update this section on election night
+// or swap in a live feed URL
+// ─────────────────────────────────────────
+const races = [
+  {id:1,type:'senate',state:'PA',full:'Pennsylvania',d:'McClellan',r:'McCormick',dp:49.2,rp:48.8,dv:1842100,rv:1826800,rep:72,st:'competitive',calledAt:'',shift:''},
+  {id:2,type:'senate',state:'WI',full:'Wisconsin',d:'Baldwin',r:'Hovde',dp:51.1,rp:46.9,dv:982300,rv:901200,rep:88,st:'called-d',calledAt:'9:18 PM',shift:'d'},
+  {id:3,type:'senate',state:'OH',full:'Ohio',d:'Brown',r:'Moreno',dp:47.3,rp:50.1,dv:1623400,rv:1718200,rep:94,st:'called-r',calledAt:'8:52 PM',shift:'r'},
+  {id:4,type:'senate',state:'MI',full:'Michigan',d:'Slotkin',r:'Rogers',dp:50.4,rp:47.2,dv:1541200,rv:1443100,rep:61,st:'competitive',calledAt:'',shift:'d'},
+  {id:5,type:'senate',state:'AZ',full:'Arizona',d:'Gallego',r:'Lake',dp:51.8,rp:46.2,dv:918700,rv:819400,rep:55,st:'called-d',calledAt:'10:02 PM',shift:''},
+  {id:6,type:'senate',state:'MT',full:'Montana',d:'Tester',r:'Sheehy',dp:45.2,rp:52.8,dv:148200,rv:173100,rep:79,st:'called-r',calledAt:'9:44 PM',shift:''},
+  {id:7,type:'senate',state:'NV',full:'Nevada',d:'Rosen',r:'Brown',dp:50.9,rp:47.1,dv:541800,rv:501300,rep:44,st:'reporting',calledAt:'',shift:'d'},
+  {id:8,type:'senate',state:'TX',full:'Texas',d:'Allred',r:'Cruz',dp:46.1,rp:51.9,dv:2184200,rv:2458700,rep:82,st:'called-r',calledAt:'8:07 PM',shift:''},
+  {id:9,type:'senate',state:'FL',full:'Florida',d:'Mucarsel-Powell',r:'Scott',dp:44.8,rp:53.2,dv:2341000,rv:2781000,rep:91,st:'called-r',calledAt:'8:31 PM',shift:''},
+  {id:10,type:'senate',state:'MD',full:'Maryland',d:'Alsobrooks',r:'Hogan',dp:52.4,rp:45.6,dv:1182400,rv:1029800,rep:67,st:'called-d',calledAt:'9:55 PM',shift:''},
+  {id:11,type:'house',state:'NY-17',full:'New York',d:'Jones',r:'Lawler',dp:49.8,rp:48.9,dv:92400,rv:90700,rep:58,st:'competitive',calledAt:'',shift:''},
+  {id:12,type:'house',state:'CA-13',full:'California',d:'Gray',r:'Duarte',dp:50.2,rp:48.4,dv:71200,rv:68700,rep:41,st:'competitive',calledAt:'',shift:''},
+  {id:13,type:'house',state:'AZ-06',full:'Arizona',d:'Stanton',r:'Ciscomani',dp:51.4,rp:46.8,dv:58900,rv:53700,rep:72,st:'called-d',calledAt:'10:14 PM',shift:''},
+  {id:14,type:'house',state:'PA-07',full:'Pennsylvania',d:'Wild',r:'Mackenzie',dp:52.1,rp:46.2,dv:88300,rv:78200,rep:84,st:'called-d',calledAt:'9:38 PM',shift:''},
+  {id:15,type:'house',state:'CO-08',full:'Colorado',d:'Caraveo',r:'Evans',dp:48.9,rp:49.8,dv:62100,rv:63300,rep:66,st:'competitive',calledAt:'',shift:'r'},
+  {id:16,type:'house',state:'OH-01',full:'Ohio',d:'Sherrill',r:'Chabot',dp:46.2,rp:52.1,dv:71800,rv:80900,rep:89,st:'called-r',calledAt:'9:01 PM',shift:''},
+  {id:17,type:'governor',state:'NC',full:'North Carolina',d:'Stein',r:'Robinson',dp:52.9,rp:44.1,dv:1892300,rv:1578100,rep:78,st:'called-d',calledAt:'9:22 PM',shift:''},
+  {id:18,type:'governor',state:'NH',full:'New Hampshire',d:'Craig',r:'Ayotte',dp:46.8,rp:51.2,dv:198400,rv:217200,rep:62,st:'called-r',calledAt:'8:44 PM',shift:''},
+  {id:19,type:'governor',state:'IN',full:'Indiana',d:'McCormick',r:'Braun',dp:42.1,rp:55.4,dv:748200,rv:984100,rep:91,st:'called-r',calledAt:'8:15 PM',shift:''},
+  {id:20,type:'governor',state:'WA',full:'Washington',d:'Ferguson',r:'Reichert',dp:53.8,rp:44.2,dv:1284100,rv:1054800,rep:49,st:'reporting',calledAt:'',shift:'d'},
+  // ── BALLOT MEASURES — summaries pre-populated, add more below ──
+  {id:21,type:'ballot',state:'OH',full:'Ohio',d:'Yes',r:'No',dp:54.2,rp:45.8,dv:1842000,rv:1559000,rep:88,st:'called-d',calledAt:'9:50 PM',shift:'',
+   lbl:'OH Issue 1: Abortion rights',
+   yesLbl:'Yes — enshrine rights',noLbl:'No — oppose',
+   tags:['Health','Constitutional amendment','Reproductive rights'],
+   summary:'Amends the Ohio constitution to establish a right to contraception, fertility treatment, continuing a pregnancy, miscarriage care, and abortion up to the point of fetal viability (roughly 22–24 weeks). After viability, the state could restrict abortion except when a physician determines it is necessary to protect the patient\'s life or health. A "Yes" vote adds these protections to the state constitution, making them harder for the legislature to restrict in the future.'},
+  {id:22,type:'ballot',state:'AZ',full:'Arizona',d:'Yes',r:'No',dp:48.1,rp:51.9,dv:811200,rv:875300,rep:55,st:'competitive',calledAt:'',shift:'',
+   lbl:'AZ Prop 139: Minimum wage',
+   yesLbl:'Yes — raise wage',noLbl:'No — keep current',
+   tags:['Labor','Economy','Wages'],
+   summary:'Would raise Arizona\'s minimum wage from $14.35/hr to $18.00/hr by 2026, then index it to inflation annually. Includes a separate, lower tipped wage floor. Proponents argue it helps low-income workers keep pace with the state\'s rising cost of living. Opponents argue it could reduce small business hiring and raise consumer prices, particularly in lower-cost rural parts of the state.'},
+  {id:23,type:'ballot',state:'MI',full:'Michigan',d:'Yes',r:'No',dp:57.4,rp:40.2,dv:2140000,rv:1500000,rep:76,st:'called-d',calledAt:'10:21 PM',shift:'',
+   lbl:'MI Prop 3: Voting rights',
+   yesLbl:'Yes — expand access',noLbl:'No — oppose',
+   tags:['Elections','Civil rights','Constitutional amendment'],
+   summary:'Amends the Michigan constitution to add automatic voter registration at state agencies, nine days of early voting, no-reason absentee voting, same-day registration, straight-ticket voting, and prepaid postage on absentee ballots. Supporters say it modernizes elections and boosts turnout. Critics argue expanded same-day registration creates fraud risks and strains election administration.'},
+  {id:24,type:'ballot',state:'WI',full:'Wisconsin',d:'Yes',r:'No',dp:44.1,rp:53.8,dv:918000,rv:1120000,rep:91,st:'called-r',calledAt:'9:05 PM',shift:'',
+   lbl:'WI Ref: Property tax cap',
+   yesLbl:'Yes — cap increases',noLbl:'No — no cap',
+   tags:['Taxes','Housing','Non-binding'],
+   summary:'A non-binding advisory referendum asking voters whether the Wisconsin legislature should cap annual property tax increases at the rate of inflation. Though non-binding, results are often used by legislators to justify future action. Supporters, primarily Republicans, say it would provide relief for homeowners; opponents argue it would squeeze local government budgets and reduce funding for schools and emergency services.'},
+];
+
+let curFilter = 'all', curSort = 'closest', curTab = 'senate', geo = null, countdown = 60;
+
+function fmtV(n) { return n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1000 ? (n/1000).toFixed(1)+'K' : String(n); }
+
+// ─── Sort & filter ───
+function sortedRaces() {
+  const list = curFilter === 'all' ? races : races.filter(r => r.type === curFilter);
+  const s = [...list];
+  if (curSort === 'closest') s.sort((a,b) => {
+    const o = {competitive:0, reporting:1, 'called-d':2, 'called-r':2};
+    if ((o[a.st]??3) !== (o[b.st]??3)) return (o[a.st]??3)-(o[b.st]??3);
+    return Math.abs(a.dp-a.rp) - Math.abs(b.dp-b.rp);
+  });
+  else if (curSort === 'alpha') s.sort((a,b) => a.full.localeCompare(b.full));
+  else if (curSort === 'reporting') s.sort((a,b) => b.rep - a.rep);
+  else if (curSort === 'recent') {
+    const called = s.filter(r => r.calledAt).sort((a,b) => b.calledAt.localeCompare(a.calledAt));
+    return [...called, ...s.filter(r => !r.calledAt)];
+  }
+  return s;
+}
+
+// ─── Render race grid ───
+function renderGrid() {
+  document.getElementById('rgrid').innerHTML = sortedRaces().map(r => {
+    const isBallot = r.type === 'ballot';
+    const lbl = r.lbl || (r.type==='senate' ? `${r.full} Senate` : r.type==='governor' ? `${r.full} Governor` : `${r.state} House`);
+    const sLbl = r.st==='called-d' ? (isBallot?'Yes passing':'Called D') : r.st==='called-r' ? (isBallot?'No passing':'Called R') : r.st==='competitive' ? 'Close' : `${r.rep}% in`;
+    const sCls = r.st==='called-d'?'st-d':r.st==='called-r'?'st-r':r.st==='competitive'?'st-c':'st-n';
+    const shiftHtml = r.shift ? `<span class="${r.shift==='d'?'shift-d':'shift-r'}">${r.shift==='d'?'▲D':'▲R'}</span>` : '';
+    const typeLbl = r.type==='senate'?'SEN':r.type==='house'?'HSE':r.type==='governor'?'GOV':'BAL';
+
+    // Ballot-specific expanded content
+    const ballotExtra = isBallot ? `
+      <div class="bsummary-box">
+        <div class="bsummary-lbl">What this measure does</div>
+        ${r.summary}
+      </div>
+      <div class="btags">
+        ${r.st==='called-d'?'<span class="btag btag-pass">Passing</span>':r.st==='called-r'?'<span class="btag btag-fail">Failing</span>':'<span class="btag btag-close">Too close</span>'}
+        ${(r.tags||[]).map(t=>`<span class="btag btag-topic">${t}</span>`).join('')}
+      </div>` : '';
+
+    return `<div class="rcard ${r.st}" onclick="toggleCard(${r.id},this)">
+      <div class="rcompact">
+        <div>
+          <div class="rstate">${r.state}</div>
+          <span class="rtype-badge">${typeLbl}</span>
+        </div>
+        <div class="rbar-wrap">
+          <div class="rbar"><div class="bar-d" style="width:${r.dp}%"></div><div class="bar-r" style="width:${r.rp}%"></div></div>
+          <div class="rpcts">
+            <span class="pd">${isBallot?'Yes':r.d} ${r.dp.toFixed(1)}%</span>
+            <span class="pr">${r.rp.toFixed(1)}% ${isBallot?'No':r.r}</span>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <span class="rstatus ${sCls}">${sLbl}</span>
+          ${shiftHtml}
+        </div>
+      </div>
+      <div class="rexpanded" id="ex${r.id}">
+        ${isBallot ? ballotExtra : ''}
+        <div class="crow"><div class="cp-d"></div>
+          <span class="cname">${isBallot?(r.yesLbl||'Yes'):r.d}${r.st==='called-d'?' <span class="wbadge wb-d">Winner</span>':''}</span>
+          <span class="cvotes">${fmtV(r.dv)}</span>
+          <span class="cpct-d">${r.dp.toFixed(1)}%</span>
+        </div>
+        <div class="crow"><div class="cp-r"></div>
+          <span class="cname">${isBallot?(r.noLbl||'No'):r.r}${r.st==='called-r'?' <span class="wbadge wb-r">Winner</span>':''}</span>
+          <span class="cvotes">${fmtV(r.rv)}</span>
+          <span class="cpct-r">${r.rp.toFixed(1)}%</span>
+        </div>
+        <div class="rinfo">
+          <span>${r.rep}% precincts reporting</span>
+          <span class="called-time">${r.calledAt ? 'Called '+r.calledAt : 'In progress'}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleCard(id, el) {
+  const isOpen = el.classList.contains('open');
+  document.querySelectorAll('.rcard.open').forEach(c => c.classList.remove('open'));
+  if (!isOpen) el.classList.add('open');
+}
+
+function doFilter(f, btn) {
+  curFilter = f;
+  document.querySelectorAll('.ftab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderGrid();
+}
+
+function doSort(s, btn) {
+  curSort = s;
+  document.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderGrid();
+}
+
+// ─── Still watching ───
+function renderWatching() {
+  const hot = races.filter(r => r.st === 'competitive' || r.st === 'reporting').slice(0, 5);
+  document.getElementById('watching').innerHTML = hot.map(r => {
+    const lbl = r.lbl || (r.type==='senate' ? `${r.full} Senate` : r.type==='governor' ? `${r.full} Governor` : r.type==='house' ? `${r.state} House` : r.lbl||'');
+    return `<div class="watch-card">
+      <div class="watch-title">${lbl}</div>
+      <div class="watch-sub">${Math.abs(r.dp-r.rp).toFixed(1)}pt margin · ${r.rep}% reporting</div>
+      <div class="watch-bar"><div class="watch-bd" style="width:${r.dp}%"></div><div class="watch-br" style="width:${r.rp}%"></div></div>
+      <div class="watch-pcts"><span class="wpd">${r.d} ${r.dp.toFixed(1)}%</span><span class="wpr">${r.rp.toFixed(1)}% ${r.r}</span></div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Ticker ───
+function buildTicker() {
+  const called = races.filter(r => r.st === 'called-d' || r.st === 'called-r');
+  const items = called.map(r => {
+    const w = r.st==='called-d' ? (r.d||'Yes') : (r.r||'No');
+    const cls = r.st==='called-d' ? 'tick-d' : 'tick-r';
+    const lbl = r.lbl || (r.type==='senate' ? `${r.state} Senate` : r.type==='governor' ? `${r.state} Governor` : `${r.state} House`);
+    return `<span class="tick-item"><span class="${cls}">${w} (${r.st==='called-d'?'D':'R'})</span> wins ${lbl} &nbsp;·&nbsp; </span>`;
+  });
+  document.getElementById('ticker').innerHTML = [...items, ...items].join('');
+}
+
+// ─── Map ───
+const stateColor = { senate:{}, governor:{}, house:{} };
+const stateRace  = { senate:{}, governor:{} };
+races.forEach(r => {
+  if (r.type === 'senate' || r.type === 'governor') {
+    stateColor[r.type][r.full] = r.st==='called-d' ? '#bfdbfe' : r.st==='called-r' ? '#fecaca' : r.st==='competitive' ? '#fde68a' : '#f0f2f5';
+    stateRace[r.type][r.full] = r;
+  }
+});
+
+function setTab(t, btn) {
+  curTab = t;
+  document.querySelectorAll('.mtab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  drawMap();
+}
+
+async function loadMap() {
+  try {
+    const res = await fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json');
+    geo = await res.json();
+    drawMap();
+  } catch(e) {
+    document.querySelector('.map-wrap').innerHTML = '<p style="padding:40px;text-align:center;color:#8a94a6;font-size:12px;">Map requires an internet connection to load geographic data.</p>';
+  }
+}
+
+function drawMap() {
+  if (!geo) return;
+  const svg = d3.select('#us-map');
+  svg.selectAll('*').remove();
+  const proj = d3.geoAlbersUsa().scale(1280).translate([480, 250]);
+  const path = d3.geoPath().projection(proj);
+  const feats = topojson.feature(geo, geo.objects.states);
+  const tt = document.getElementById('tt');
+  const mapEl = document.querySelector('.map-section');
+
+  svg.append('g').selectAll('path').data(feats.features).join('path')
+    .attr('d', path)
+    .attr('fill', d => {
+      const n = d.properties && d.properties.name ? d.properties.name : '';
+      return (stateColor[curTab] && stateColor[curTab][n]) || '#e9ecf0';
+    })
+    .attr('stroke', '#fff')
+    .attr('stroke-width', 0.8)
+    .on('mousemove', function(event, d) {
+      const n = d.properties && d.properties.name ? d.properties.name : '';
+      const r = (stateRace[curTab]||{})[n];
+      if (!r) { tt.style.display='none'; return; }
+      const rect = mapEl.getBoundingClientRect();
+      const mx = event.clientX - rect.left, my = event.clientY - rect.top;
+      tt.style.left = (mx + 16) + 'px'; tt.style.top = (my - 10) + 'px'; tt.style.display = 'block';
+      const calledHtml = r.st==='called-d' ? `<div class="tt-called tt-cd">Called for ${r.d} (D) · ${r.calledAt}</div>` : r.st==='called-r' ? `<div class="tt-called tt-cr">Called for ${r.r} (R) · ${r.calledAt}</div>` : '';
+      tt.innerHTML = `<div class="tt-state">${n} ${curTab==='senate'?'Senate':'Governor'}</div>
+        <div class="tt-row"><div class="tt-dot-d"></div><span class="tt-name">${r.d}</span><span class="tt-pct-d">${r.dp.toFixed(1)}%</span></div>
+        <div class="tt-row"><div class="tt-dot-r"></div><span class="tt-name">${r.r}</span><span class="tt-pct-r">${r.rp.toFixed(1)}%</span></div>
+        <div class="tt-rep">${r.rep}% precincts reporting${!calledHtml?' · '+Math.abs(r.dp-r.rp).toFixed(1)+'pt margin':''}</div>
+        ${calledHtml}`;
+    })
+    .on('mouseleave', () => { tt.style.display = 'none'; })
+    .on('click', function(event, d) {
+      const n = d.properties && d.properties.name ? d.properties.name : '';
+      const r = (stateRace[curTab]||{})[n];
+      if (!r) return;
+      const rect = mapEl.getBoundingClientRect();
+      tt.style.left = (event.clientX - rect.left + 16) + 'px';
+      tt.style.top  = (event.clientY - rect.top  - 10) + 'px';
+      tt.style.display = 'block';
+    });
+}
+
+// ─── Timestamps & countdown ───
+function updateTs() {
+  document.getElementById('uts').textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', second:'2-digit'});
+}
+function startCountdown() {
+  countdown = 60;
+  const el = document.getElementById('cd');
+  const iv = setInterval(() => {
+    countdown--;
+    el.textContent = countdown > 0 ? `Refresh in ${countdown}s` : 'Refreshing...';
+    if (countdown <= 0) { clearInterval(iv); updateTs(); startCountdown(); }
+  }, 1000);
+}
+
+// ─── Init ───
+updateTs();
+startCountdown();
+renderGrid();
+renderWatching();
+buildTicker();
+loadMap();
+</script>
+</body>
+</html>
